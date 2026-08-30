@@ -609,6 +609,159 @@ void test_wbuf_wrap_bytes(void) {
     printf("Ok\n");
 }
 
+void test_svec_remove_non_last_element(void) {
+    printf("Testing svec remove non-last element... ");
+
+    typedef struct {
+        uint32_t a;
+        uint32_t b;
+    } test_svec_elem_t;
+
+    enum {
+        ELEMENT_COUNT = 4,
+        STORAGE_SIZE = 160
+    };
+
+    union {
+        test_svec_elem_t align;
+        uint8_t bytes[STORAGE_SIZE];
+    } storage;
+
+    uint8_t expected_guard[STORAGE_SIZE - ELEMENT_COUNT * sizeof(test_svec_elem_t)];
+
+    // Fill the whole storage with a recognizable pattern.
+    for (size_t i = 0; i < sizeof(storage.bytes); i++) {
+        storage.bytes[i] = (uint8_t)(i ^ 0xA5);
+    }
+
+    test_svec_elem_t *elems = (test_svec_elem_t *)storage.bytes;
+
+    elems[0] = (test_svec_elem_t){10, 11};
+    elems[1] = (test_svec_elem_t){20, 21};
+    elems[2] = (test_svec_elem_t){30, 31};
+    elems[3] = (test_svec_elem_t){40, 41};
+
+    memcpy(expected_guard,
+           storage.bytes + ELEMENT_COUNT * sizeof(test_svec_elem_t),
+           sizeof(expected_guard));
+
+    _z_svec_t vec = {
+        ._capacity = ELEMENT_COUNT,
+        ._len = ELEMENT_COUNT,
+        ._val = storage.bytes,
+        ._aliased = true,
+    };
+
+    _z_svec_remove(&vec,
+                   1,
+                   _z_noop_clear,
+                   NULL,
+                   sizeof(test_svec_elem_t),
+                   false);
+
+    assert(vec._len == 3);
+
+    elems = (test_svec_elem_t *)vec._val;
+
+    assert(elems[0].a == 10);
+    assert(elems[0].b == 11);
+
+    assert(elems[1].a == 30);
+    assert(elems[1].b == 31);
+
+    assert(elems[2].a == 40);
+    assert(elems[2].b == 41);
+
+    // Removing an element must not modify memory outside
+    // the logical storage of the vector.
+    assert(memcmp(storage.bytes + ELEMENT_COUNT * sizeof(test_svec_elem_t),
+                  expected_guard,
+                  sizeof(expected_guard)) == 0);
+
+    printf("Ok\n");
+}
+
+void test_wbuf_reset_after_wrap_bytes(void) {
+    printf("Testing wbuf reset after wrap_bytes... ");
+
+    uint8_t header[VAL_SIZE];
+    memset(header, 0xaa, sizeof(header));
+
+    uint8_t payload[PAYLOAD_SIZE];
+    memset(payload, 0x55, sizeof(payload));
+
+    _z_wbuf_t wbf = _z_wbuf_make(PAYLOAD_SIZE, true);
+
+    assert(_z_wbuf_space_left(&wbf) == PAYLOAD_SIZE);
+
+    // Use part of the original io-slice.
+    z_result_t ret = _z_wbuf_write_bytes(&wbf, header, 0, sizeof(header));
+    assert(ret == _Z_RES_OK);
+
+    // wrap_bytes() shrinks the current io-slice capacity.
+    ret = _z_wbuf_wrap_bytes(&wbf, payload, 0, sizeof(payload));
+    assert(ret == _Z_RES_OK);
+
+    // Reset the wbuf for reuse.
+    _z_wbuf_reset(&wbf);
+
+    // The original writable capacity must be fully restored.
+    assert(_z_wbuf_space_left(&wbf) == PAYLOAD_SIZE);
+
+    // Verify actual reuse, not just the capacity value.
+    ret = _z_wbuf_write_bytes(&wbf, payload, 0, sizeof(payload));
+    assert(ret == _Z_RES_OK);
+
+    assert(_z_wbuf_len(&wbf) == PAYLOAD_SIZE);
+    assert(_z_wbuf_space_left(&wbf) == 0);
+
+    _z_wbuf_clear(&wbf);
+
+    printf("Ok\n");
+}
+
+void test_wbuf_reset_removes_borrowed_ioslices(void) {
+    printf("Testing wbuf reset removes borrowed ioslices... ");
+
+    uint8_t data1[8] = {0};
+    uint8_t data2[8] = {0};
+    uint8_t payload[PAYLOAD_SIZE] = {0};
+
+    _z_wbuf_t wbf = _z_wbuf_make(PAYLOAD_SIZE, true);
+
+    assert(_z_wbuf_len_iosli(&wbf) == 1);
+
+    z_result_t ret = _z_wbuf_wrap_bytes(&wbf, data1, 0, sizeof(data1));
+    assert(ret == _Z_RES_OK);
+
+    ret = _z_wbuf_wrap_bytes(&wbf, data2, 0, sizeof(data2));
+    assert(ret == _Z_RES_OK);
+
+    // Borrowed io-slices must have been added.
+    assert(_z_wbuf_len_iosli(&wbf) > 1);
+
+    _z_wbuf_reset(&wbf);
+
+    // Only the original allocated io-slice shall remain.
+    assert(_z_wbuf_len_iosli(&wbf) == 1);
+
+    _z_iosli_t *ios = _z_wbuf_get_iosli(&wbf, 0);
+    assert(ios->_is_alloc);
+
+    // The original buffer shall be fully reusable.
+    assert(_z_wbuf_space_left(&wbf) == PAYLOAD_SIZE);
+
+    ret = _z_wbuf_write_bytes(&wbf, payload, 0, PAYLOAD_SIZE);
+    assert(ret == _Z_RES_OK);
+
+    assert(_z_wbuf_len(&wbf) == PAYLOAD_SIZE);
+    assert(_z_wbuf_space_left(&wbf) == 0);
+
+    _z_wbuf_clear(&wbf);
+
+    printf("Ok\n");
+}
+
 /*=============================*/
 /*            Main             */
 /*=============================*/
@@ -634,4 +787,7 @@ int main(void) {
         wbuf_reusable_write_zbuf_read();
     }
     test_wbuf_wrap_bytes();
+    test_svec_remove_non_last_element();
+    test_wbuf_reset_after_wrap_bytes();
+    test_wbuf_reset_removes_borrowed_ioslices();
 }

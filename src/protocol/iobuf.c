@@ -31,6 +31,7 @@ _z_iosli_t _z_iosli_wrap(const uint8_t *buf, size_t length, size_t r_pos, size_t
     ios._r_pos = r_pos;
     ios._w_pos = w_pos;
     ios._capacity = length;
+    ios._buf_capacity = length;
     ios._is_alloc = false;
     ios._buf = (uint8_t *)buf;
     return ios;
@@ -46,10 +47,12 @@ void __z_iosli_init(_z_iosli_t *ios, size_t capacity) {
     ios->_r_pos = 0;
     ios->_w_pos = 0;
     ios->_capacity = capacity;
+    ios->_buf_capacity = capacity;
     ios->_is_alloc = true;
     ios->_buf = (uint8_t *)z_malloc(capacity);
     if (ios->_buf == NULL) {
         ios->_capacity = 0;
+        ios->_buf_capacity = 0;
         ios->_is_alloc = false;
     }
 }
@@ -97,11 +100,12 @@ void _z_iosli_copy(_z_iosli_t *dst, const _z_iosli_t *src) {
     dst->_r_pos = src->_r_pos;
     dst->_w_pos = src->_w_pos;
     dst->_capacity = src->_capacity;
+    dst->_buf_capacity = src->_buf_capacity;
     dst->_is_alloc = src->_is_alloc;
     if (dst->_is_alloc) {
-        dst->_buf = (uint8_t *)z_malloc(src->_capacity);
+        dst->_buf = (uint8_t *)z_malloc(src->_buf_capacity);
         if (dst->_buf != NULL) {
-            (void)memcpy(dst->_buf, src->_buf, src->_capacity);
+            (void)memcpy(dst->_buf, src->_buf, src->_buf_capacity);
         }
     } else {
         dst->_buf = src->_buf;
@@ -146,6 +150,7 @@ _z_zbuf_t _z_slice_as_zbuf(_z_slice_t slice) {
         ._ios = {._buf = (uint8_t *)slice.start,  // Safety: `_z_zbuf_t` is an immutable buffer
                  ._is_alloc = false,
                  ._capacity = slice.len,
+                 ._buf_capacity = slice.len,
                  ._r_pos = 0,
                  ._w_pos = slice.len},
         ._slice = _z_slice_simple_rc_null(),
@@ -516,13 +521,15 @@ void _z_wbuf_reset(_z_wbuf_t *wbf) {
     wbf->_r_idx = 0;
     wbf->_w_idx = 0;
 
-    // Reset to default iosli allocation
-    for (size_t i = 0; i < _z_iosli_svec_len(&wbf->_ioss); i++) {
+    size_t i = 0;
+    while (i < _z_iosli_svec_len(&wbf->_ioss)) {
         _z_iosli_t *ios = _z_wbuf_get_iosli(wbf, i);
+
         if (!ios->_is_alloc) {
             _z_iosli_svec_remove(&wbf->_ioss, i, false);
         } else {
             _z_iosli_reset(ios);
+            i++;
         }
     }
 }

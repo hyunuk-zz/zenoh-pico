@@ -35,7 +35,8 @@ extern "C" {
 typedef struct {
     size_t _r_pos;
     size_t _w_pos;
-    size_t _capacity;
+    size_t _capacity;     // Current logical capacity of this I/O slice.
+    size_t _buf_capacity; // Capacity of the backing buffer, used to restore _capacity on reset.
     uint8_t *_buf;
     bool _is_alloc;
 } _z_iosli_t;
@@ -68,6 +69,7 @@ static inline void _z_iosli_put(_z_iosli_t *ios, uint8_t b, size_t pos) {
 static inline void _z_iosli_reset(_z_iosli_t *ios) {
     ios->_r_pos = 0;
     ios->_w_pos = 0;
+    ios->_capacity = ios->_buf_capacity;
 }
 static inline size_t _z_iosli_size(const _z_iosli_t *ios) {
     (void)(ios);
