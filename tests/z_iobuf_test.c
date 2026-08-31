@@ -609,6 +609,46 @@ void test_wbuf_wrap_bytes(void) {
     printf("Ok\n");
 }
 
+void test_wbuf_reset_removes_borrowed_ioslices(void) {
+    printf("Testing wbuf reset removes borrowed ioslices... ");
+
+    enum {
+        WBUF_CAPACITY = 32
+    };
+
+    uint8_t data1[8] = {0};
+    uint8_t data2[8] = {0};
+
+    _z_wbuf_t wbf = _z_wbuf_make(WBUF_CAPACITY, true);
+
+    // The buffer initially contains a single owned io-slice.
+    assert(_z_wbuf_len_iosli(&wbf) == 1);
+
+    // Add multiple borrowed io-slices so that removing one shifts
+    // another borrowed io-slice into the same index.
+    z_result_t ret = _z_wbuf_wrap_bytes(&wbf, data1, 0, sizeof(data1));
+    assert(ret == _Z_RES_OK);
+
+    ret = _z_wbuf_wrap_bytes(&wbf, data2, 0, sizeof(data2));
+    assert(ret == _Z_RES_OK);
+
+    assert(_z_wbuf_len_iosli(&wbf) > 1);
+
+    _z_wbuf_reset(&wbf);
+
+    // Reset must remove every borrowed io-slice without skipping
+    // an element that was shifted into the current index.
+    assert(_z_wbuf_len_iosli(&wbf) == 1);
+
+    // The original owned io-slice must remain.
+    _z_iosli_t *ios = _z_wbuf_get_iosli(&wbf, 0);
+    assert(ios->_is_alloc);
+
+    _z_wbuf_clear(&wbf);
+
+    printf("Ok\n");
+}
+
 /*=============================*/
 /*            Main             */
 /*=============================*/
@@ -634,4 +674,5 @@ int main(void) {
         wbuf_reusable_write_zbuf_read();
     }
     test_wbuf_wrap_bytes();
+    test_wbuf_reset_removes_borrowed_ioslices();
 }

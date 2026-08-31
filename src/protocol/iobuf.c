@@ -517,12 +517,15 @@ void _z_wbuf_reset(_z_wbuf_t *wbf) {
     wbf->_w_idx = 0;
 
     // Reset to default iosli allocation
-    for (size_t i = 0; i < _z_iosli_svec_len(&wbf->_ioss); i++) {
+    for (size_t i = 0; i < _z_iosli_svec_len(&wbf->_ioss);) {
         _z_iosli_t *ios = _z_wbuf_get_iosli(wbf, i);
         if (!ios->_is_alloc) {
+            // Removal shifts the next element into the current index,
+            // so keep i unchanged and inspect the new element at this position.
             _z_iosli_svec_remove(&wbf->_ioss, i, false);
         } else {
             _z_iosli_reset(ios);
+            i++;
         }
     }
 }
